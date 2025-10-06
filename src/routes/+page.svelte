@@ -10,7 +10,7 @@
 	let walletAddress = '';
 	let startDate = '2025-09-24';
 	let sortBy: 'volume' | 'pnl' | 'pnlPercent' | 'value' | 'trades' | 'diversification' | 'risk' =
-		'volume';
+		'pnl';
 	let analyzing = false;
 
 	async function fetchLeaderboard() {
