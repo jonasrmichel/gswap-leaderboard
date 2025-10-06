@@ -301,16 +301,20 @@ export class WalletAnalyzer {
 		holdings.sort((a, b) => b.value - a.value);
 
 		// Calculate real volume from transactions
+		// Only count tokens SENT (not received) to avoid double-counting swaps
 		let totalVolumeMoved = 0;
 		const volumeData: VolumeData[] = [];
 		const tokenVolumes: { [token: string]: number } = {};
+		const walletLower = this.walletAddress.toLowerCase();
 
-		// Calculate volume from actual swap transactions
+		// Calculate volume from actual swap transactions (only count outgoing to avoid double-counting)
 		for (const tx of this.data.transactions) {
 			const amount = parseFloat(tx.amount);
 			const token = tx.token;
+			const fromLower = tx.from.toLowerCase();
 
-			if (!isNaN(amount) && amount > 0) {
+			// Only count tokens sent from this wallet (not received)
+			if (!isNaN(amount) && amount > 0 && fromLower === walletLower) {
 				if (!tokenVolumes[token]) {
 					tokenVolumes[token] = 0;
 				}
@@ -342,7 +346,6 @@ export class WalletAnalyzer {
 		// Calculate real initial portfolio value from transaction history
 		// Net flow = received - sent for each token
 		const netFlow: { [token: string]: number } = {};
-		const walletLower = this.walletAddress.toLowerCase();
 
 		for (const tx of this.data.transactions) {
 			const amount = parseFloat(tx.amount);
@@ -364,15 +367,17 @@ export class WalletAnalyzer {
 			}
 		}
 
-		// Calculate initial holdings: current holdings - net flow = initial holdings
-		// If net flow is positive (received more), we had less initially
-		// If net flow is negative (sent more), we had more initially
+		// Calculate initial holdings using: initial + netFlow = current
+		// Therefore: initial = current - netFlow
+		// If netFlow is positive (received more than sent), initial was smaller
+		// If netFlow is negative (sent more than received), initial was larger
 		let estimatedInitialValue = 0;
 		for (const holding of holdings) {
 			const currentHolding = holding.quantity;
 			const flow = netFlow[holding.token] || 0;
 			const initialHolding = currentHolding - flow;
 
+			// Only count positive initial holdings (we can't have negative holdings)
 			if (initialHolding > 0) {
 				estimatedInitialValue += initialHolding * holding.price;
 			}
