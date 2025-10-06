@@ -3,6 +3,42 @@ import { analyzeWallet } from '$lib/walletAnalyzer';
 import { defaultWallets } from '$lib/defaultWallets';
 import type { RequestHandler } from './$types';
 
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 2000; // 2 seconds
+
+// Retry with exponential backoff
+async function analyzeWalletWithRetry(
+	walletAddress: string,
+	startDate: Date,
+	maxRetries: number = MAX_RETRIES
+): Promise<{ success: boolean; error?: string }> {
+	let lastError: Error | null = null;
+
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			const statistics = await analyzeWallet(walletAddress, startDate);
+			leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
+			return { success: true };
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+
+			// Don't retry if it's a "No balances found" error (not rate limiting)
+			if (lastError.message.includes('No balances found')) {
+				return { success: false, error: lastError.message };
+			}
+
+			// Exponential backoff: 2s, 4s, 8s, 16s, 32s
+			const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+
+			if (attempt < maxRetries - 1) {
+				await new Promise((resolve) => setTimeout(resolve, delay));
+			}
+		}
+	}
+
+	return { success: false, error: lastError?.message || 'Unknown error' };
+}
+
 // SSE endpoint for real-time initialization progress
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => ({}));
@@ -53,40 +89,29 @@ export const POST: RequestHandler = async ({ request }) => {
 					errors: [] as string[]
 				};
 
-				// Process wallets sequentially with delays
+				// Process wallets sequentially with retries
 				for (let i = 0; i < defaultWallets.length; i++) {
 					const walletAddress = defaultWallets[i];
 
-					try {
-						const statistics = await analyzeWallet(walletAddress, startDate);
-						leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
+					const result = await analyzeWalletWithRetry(walletAddress, startDate);
+
+					if (result.success) {
 						results.successful++;
-
-						// Send progress update
-						sendEvent({
-							type: 'progress',
-							current: i + 1,
-							total: defaultWallets.length,
-							successful: results.successful,
-							failed: results.failed,
-							walletAddress
-						});
-					} catch (error) {
+					} else {
 						results.failed++;
-						const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-						results.errors.push(`${walletAddress}: ${errorMsg}`);
-
-						// Send progress update with error
-						sendEvent({
-							type: 'progress',
-							current: i + 1,
-							total: defaultWallets.length,
-							successful: results.successful,
-							failed: results.failed,
-							walletAddress,
-							error: errorMsg
-						});
+						results.errors.push(`${walletAddress}: ${result.error || 'Unknown error'}`);
 					}
+
+					// Send progress update
+					sendEvent({
+						type: 'progress',
+						current: i + 1,
+						total: defaultWallets.length,
+						successful: results.successful,
+						failed: results.failed,
+						walletAddress,
+						error: result.success ? undefined : result.error
+					});
 
 					// Delay between each wallet to avoid overwhelming the API
 					if (i < defaultWallets.length - 1) {

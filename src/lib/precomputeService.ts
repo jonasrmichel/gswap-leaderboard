@@ -3,9 +3,9 @@ import { analyzeWallet } from './walletAnalyzer';
 import { defaultWallets } from './defaultWallets';
 
 const DEFAULT_START_DATE = '2025-09-24';
-const CONCURRENCY_LIMIT = 10; // Process up to 10 wallets in parallel
+const CONCURRENCY_LIMIT = 3; // Process up to 3 wallets in parallel (avoid overwhelming APIs)
 const MAX_RETRIES = 5;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
+const INITIAL_RETRY_DELAY = 2000; // 2 seconds
 
 let precomputeInProgress = false;
 
