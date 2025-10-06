@@ -25,6 +25,21 @@ export interface TransactionData {
 	timestamp?: string;
 }
 
+export interface GalaScanTransaction {
+	TransactionHash: string;
+	Method: string;
+	Channel: string;
+	Block: string;
+	SecondsAgo: number;
+	CreatedAt: string;
+	FromWallet: string;
+	ToWallet: string;
+	Amount: string; // Format: "quantity:token"
+	token_path: string;
+	Fee: string;
+	is_nft: number;
+}
+
 export interface VolumeData {
 	token: string;
 	currentHolding: number;
@@ -183,6 +198,48 @@ export class WalletAnalyzer {
 		}
 	}
 
+	async fetchTransactions(): Promise<void> {
+		try {
+			const response = await fetch(
+				`https://galascan.gala.com/api/all-transactions/${this.walletAddress}`
+			);
+
+			if (response.ok) {
+				const transactions = (await response.json()) as GalaScanTransaction[];
+
+				// Filter transactions by start date and only include swaps
+				const filteredTransactions = transactions.filter((tx) => {
+					const txDate = new Date(tx.CreatedAt);
+					return (
+						txDate >= this.startDate &&
+						tx.Method === 'DexV3Contract:BatchSubmit:Swap' &&
+						tx.is_nft === 0
+					);
+				});
+
+				// Convert to our TransactionData format
+				this.data.transactions = filteredTransactions.map((tx) => {
+					const [amount, token] = tx.Amount.split(':');
+					return {
+						hash: tx.TransactionHash,
+						method: tx.Method,
+						from: tx.FromWallet,
+						to: tx.ToWallet,
+						age: `${Math.floor(tx.SecondsAgo / 86400)} days`,
+						token,
+						amount,
+						fee: tx.Fee,
+						type: 'swap',
+						timestamp: tx.CreatedAt
+					};
+				});
+			}
+		} catch (error) {
+			console.error('Failed to fetch transactions from GalaScan:', error);
+			this.data.transactions = [];
+		}
+	}
+
 	calculateStatistics(): WalletStatistics {
 		let totalValue = 0;
 		let holdings: Array<{
@@ -215,49 +272,43 @@ export class WalletAnalyzer {
 		// Sort by value
 		holdings.sort((a, b) => b.value - a.value);
 
-		// Calculate volume estimates
+		// Calculate real volume from transactions
 		let totalVolumeMoved = 0;
 		const volumeData: VolumeData[] = [];
+		const tokenVolumes: { [token: string]: number } = {};
 
-		for (const holding of holdings) {
-			let estimatedVolume = 0;
-			let calculationMethod = '';
+		// Calculate volume from actual swap transactions
+		for (const tx of this.data.transactions) {
+			const amount = parseFloat(tx.amount);
+			const token = tx.token;
 
-			if (holding.token === 'GALA') {
-				const avgTradeSize = holding.quantity * 0.15;
-				const estimatedTrades = 8;
-				estimatedVolume = avgTradeSize * estimatedTrades;
-				calculationMethod = 'Trading';
-			} else if (holding.token === 'GWETH' || holding.token === 'GUSDC') {
-				if (holding.quantity < 0.001) {
-					estimatedVolume = holding.quantity * 100;
-					calculationMethod = 'Residual';
-				} else {
-					estimatedVolume = holding.quantity * 5;
-					calculationMethod = 'Trading';
+			if (!isNaN(amount) && amount > 0) {
+				if (!tokenVolumes[token]) {
+					tokenVolumes[token] = 0;
 				}
-			} else if (holding.token === 'GUSDT') {
-				estimatedVolume = holding.quantity * 4;
-				calculationMethod = 'Stable';
-			} else {
-				estimatedVolume = holding.quantity * 2;
-				calculationMethod = 'Default';
+				tokenVolumes[token] += amount;
 			}
+		}
 
-			const volumeValue = estimatedVolume * holding.price;
+		// Create volume data for each holding
+		for (const holding of holdings) {
+			const volume = tokenVolumes[holding.token] || 0;
+			const volumeValue = volume * holding.price;
 			totalVolumeMoved += volumeValue;
 
 			volumeData.push({
 				token: holding.token,
 				currentHolding: holding.quantity,
-				estimatedVolume,
+				estimatedVolume: volume,
 				volumeValue,
-				calculationMethod
+				calculationMethod: volume > 0 ? 'Real Transaction Data' : 'No Transactions'
 			});
 		}
 
-		// Calculate metrics
-		const estimatedTrades = Math.floor(totalVolumeMoved / 50);
+		// Calculate metrics from real transactions
+		const swapTransactions = this.data.transactions.filter((tx) => tx.type === 'swap');
+		// Each swap typically has 2 transaction records (tokenIn and tokenOut), so divide by 2
+		const estimatedTrades = Math.floor(swapTransactions.length / 2);
 		const avgTradeSize = estimatedTrades > 0 ? totalVolumeMoved / estimatedTrades : 0;
 
 		const galaHolding = holdings.find((h) => h.token === 'GALA');
@@ -304,6 +355,7 @@ export class WalletAnalyzer {
 	async analyze(): Promise<WalletStatistics> {
 		await this.fetchTokenPrices();
 		await this.fetchWalletBalances();
+		await this.fetchTransactions();
 
 		if (Object.keys(this.data.balances).length === 0) {
 			throw new Error('No balances found for wallet');
