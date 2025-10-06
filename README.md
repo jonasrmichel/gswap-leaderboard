@@ -1,9 +1,6 @@
 <div align="center">
 
-<img src="static/logo.svg" alt="GSwap Trading Leaderboard" width="800"/>
-
-<br/>
-<br/>
+# 🏆 GSwap Trading Leaderboard
 
 **Track and rank the best GSwap traders**
 
