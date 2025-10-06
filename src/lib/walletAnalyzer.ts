@@ -311,9 +311,44 @@ export class WalletAnalyzer {
 		const estimatedTrades = Math.floor(swapTransactions.length / 2);
 		const avgTradeSize = estimatedTrades > 0 ? totalVolumeMoved / estimatedTrades : 0;
 
-		const galaHolding = holdings.find((h) => h.token === 'GALA');
-		const estimatedInitialGala = galaHolding ? galaHolding.quantity * 1.1 : 0;
-		const estimatedInitialValue = estimatedInitialGala * (this.data.prices.GALA || 0.015);
+		// Calculate real initial portfolio value from transaction history
+		// Net flow = received - sent for each token
+		const netFlow: { [token: string]: number } = {};
+		const walletLower = this.walletAddress.toLowerCase();
+
+		for (const tx of this.data.transactions) {
+			const amount = parseFloat(tx.amount);
+			const token = tx.token;
+
+			if (!isNaN(amount) && amount > 0) {
+				if (!netFlow[token]) {
+					netFlow[token] = 0;
+				}
+
+				const fromLower = tx.from.toLowerCase();
+				const toLower = tx.to.toLowerCase();
+
+				if (toLower === walletLower) {
+					netFlow[token] += amount; // Received
+				} else if (fromLower === walletLower) {
+					netFlow[token] -= amount; // Sent
+				}
+			}
+		}
+
+		// Calculate initial holdings: current holdings - net flow = initial holdings
+		// If net flow is positive (received more), we had less initially
+		// If net flow is negative (sent more), we had more initially
+		let estimatedInitialValue = 0;
+		for (const holding of holdings) {
+			const currentHolding = holding.quantity;
+			const flow = netFlow[holding.token] || 0;
+			const initialHolding = currentHolding - flow;
+
+			if (initialHolding > 0) {
+				estimatedInitialValue += initialHolding * holding.price;
+			}
+		}
 
 		const pnl = totalValue - estimatedInitialValue;
 		const pnlPercent = estimatedInitialValue > 0 ? (pnl / estimatedInitialValue) * 100 : 0;

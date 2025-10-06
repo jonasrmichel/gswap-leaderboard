@@ -14,7 +14,17 @@
       "Bash(git log:*)",
       "Bash(git add:*)",
       "Bash(git commit:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Read(//Users/jmichel/code/github.com/jonasrmichel/gswap-trader/**)",
+      "Bash(Ce74B68cd1e9786F4BD3b9f7152D6151695A0bA5 2025-09-23)",
+      "Bash(node:*)",
+      "WebSearch",
+      "WebFetch(domain:gitlab.com)",
+      "Bash(git clone:*)",
+      "Read(//private/tmp/galascan/**)",
+      "Read(//tmp/galascan/api/src/api/**)",
+      "Read(//tmp/galascan/**)",
+      "Bash(python3:*)"
     ],
     "deny": [],
     "ask": []
