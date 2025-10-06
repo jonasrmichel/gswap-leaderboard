@@ -1,0 +1,29 @@
+{
+  "name": "gswap-leaderboard",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "dev": "vite dev",
+    "build": "vite build",
+    "preview": "vite preview",
+    "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
+    "check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
+    "import:local": "node scripts/bulk-import.js http://localhost:5173 wallets.txt",
+    "import:prod": "node scripts/bulk-import.js"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-vercel": "^5.0.0",
+    "@sveltejs/kit": "^2.0.0",
+    "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "svelte": "^4.0.0",
+    "svelte-check": "^3.6.0",
+    "tslib": "^2.4.1",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  },
+  "type": "module",
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "puppeteer": "^22.0.0"
+  }
+}

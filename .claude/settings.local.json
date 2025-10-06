@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/jmichel/code/github.com/jonasrmichel/gswap-trader/scripts/**)",
+      "Bash(npm create:*)",
+      "Bash(npx sv create:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm install)",
+      "Bash(npm run check:*)",
+      "Bash(npm run build:*)",
+      "Bash(chmod:*)",
+      "Bash(npm run dev:*)",
+      "Bash(curl:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
