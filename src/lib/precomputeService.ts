@@ -3,7 +3,98 @@ import { analyzeWallet } from './walletAnalyzer';
 import { defaultWallets } from './defaultWallets';
 
 const DEFAULT_START_DATE = '2025-09-24';
+const CONCURRENCY_LIMIT = 10; // Process up to 10 wallets in parallel
+const MAX_RETRIES = 5;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
 let precomputeInProgress = false;
+
+// Retry with exponential backoff
+async function analyzeWalletWithRetry(
+	walletAddress: string,
+	startDate: Date,
+	maxRetries: number = MAX_RETRIES
+): Promise<{ success: boolean; error?: string }> {
+	let lastError: Error | null = null;
+
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			const statistics = await analyzeWallet(walletAddress, startDate);
+			leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
+			return { success: true };
+		} catch (error) {
+			lastError = error instanceof Error ? error : new Error(String(error));
+
+			// Don't retry if it's a "No balances found" error (not rate limiting)
+			if (lastError.message.includes('No balances found')) {
+				return { success: false, error: lastError.message };
+			}
+
+			// Exponential backoff: 1s, 2s, 4s, 8s, 16s
+			const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+
+			if (attempt < maxRetries - 1) {
+				console.log(
+					`[Precompute] Retry ${attempt + 1}/${maxRetries} for ${walletAddress} after ${delay}ms`
+				);
+				await new Promise((resolve) => setTimeout(resolve, delay));
+			}
+		}
+	}
+
+	return { success: false, error: lastError?.message || 'Unknown error' };
+}
+
+// Process wallets in parallel with concurrency limit
+async function processWalletsInParallel(
+	wallets: string[],
+	startDate: Date,
+	concurrencyLimit: number
+): Promise<{ successCount: number; failureCount: number }> {
+	let successCount = 0;
+	let failureCount = 0;
+	let processedCount = 0;
+
+	const queue = [...wallets];
+	const inProgress = new Set<Promise<void>>();
+
+	while (queue.length > 0 || inProgress.size > 0) {
+		// Fill up to concurrency limit
+		while (queue.length > 0 && inProgress.size < concurrencyLimit) {
+			const walletAddress = queue.shift()!;
+
+			const task = analyzeWalletWithRetry(walletAddress, startDate).then((result) => {
+				if (result.success) {
+					successCount++;
+				} else {
+					failureCount++;
+					if (!result.error?.includes('No balances found')) {
+						console.error(`[Precompute] Failed to analyze wallet ${walletAddress}: ${result.error}`);
+					}
+				}
+
+				processedCount++;
+
+				// Log progress every 10 wallets
+				if (processedCount % 10 === 0 || processedCount === wallets.length) {
+					console.log(
+						`[Precompute] Progress: ${processedCount}/${wallets.length} (${successCount} success, ${failureCount} failed)`
+					);
+				}
+			});
+
+			inProgress.add(task);
+			task.finally(() => inProgress.delete(task));
+		}
+
+		// Wait for at least one task to complete
+		if (inProgress.size > 0) {
+			await Promise.race(inProgress);
+		}
+	}
+
+	return { successCount, failureCount };
+}
 
 export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DATE): Promise<void> {
 	// Prevent multiple simultaneous precompute operations
@@ -16,36 +107,17 @@ export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DA
 	leaderboardStore.setPrecomputing(true);
 
 	console.log(`[Precompute] Starting leaderboard precomputation for ${defaultWallets.length} wallets`);
+	console.log(`[Precompute] Concurrency: ${CONCURRENCY_LIMIT}, Max retries: ${MAX_RETRIES}`);
 	console.log(`[Precompute] Start date: ${startDate}`);
 
 	const startTime = Date.now();
-	let successCount = 0;
-	let failureCount = 0;
 
 	try {
-		for (let i = 0; i < defaultWallets.length; i++) {
-			const walletAddress = defaultWallets[i];
-
-			try {
-				const statistics = await analyzeWallet(walletAddress, new Date(startDate));
-				leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
-				successCount++;
-
-				if ((i + 1) % 10 === 0 || i === defaultWallets.length - 1) {
-					console.log(
-						`[Precompute] Progress: ${i + 1}/${defaultWallets.length} (${successCount} success, ${failureCount} failed)`
-					);
-				}
-			} catch (error) {
-				failureCount++;
-				console.error(`[Precompute] Failed to analyze wallet ${walletAddress}:`, error);
-			}
-
-			// Add a small delay to avoid overwhelming APIs
-			if (i < defaultWallets.length - 1) {
-				await new Promise((resolve) => setTimeout(resolve, 5000));
-			}
-		}
+		const { successCount, failureCount } = await processWalletsInParallel(
+			defaultWallets,
+			new Date(startDate),
+			CONCURRENCY_LIMIT
+		);
 
 		// Mark cache as valid
 		leaderboardStore.setCacheMetadata(startDate);
@@ -54,6 +126,8 @@ export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DA
 		console.log(
 			`[Precompute] Completed in ${duration}s - ${successCount} success, ${failureCount} failed`
 		);
+	} catch (error) {
+		console.error('[Precompute] Unexpected error:', error);
 	} finally {
 		precomputeInProgress = false;
 		leaderboardStore.setPrecomputing(false);
