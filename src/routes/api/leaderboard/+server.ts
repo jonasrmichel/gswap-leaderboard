@@ -76,3 +76,32 @@ export const POST: RequestHandler = async ({ request }) => {
 		);
 	}
 };
+
+// DELETE endpoint to clear cache and trigger fresh precomputation
+export const DELETE: RequestHandler = async ({ url }) => {
+	const startDate = url.searchParams.get('startDate') || DEFAULT_START_DATE;
+
+	// Check if precomputation is already in progress
+	if (isPrecomputeInProgress()) {
+		return json(
+			{ error: 'Precomputation already in progress', precomputing: true },
+			{ status: 409 }
+		);
+	}
+
+	console.log('[Leaderboard API] Clearing cache and triggering fresh precomputation');
+
+	// Clear the cache
+	leaderboardStore.clear();
+
+	// Trigger fresh precomputation (don't await - let it run in background)
+	precomputeLeaderboard(startDate).catch((err) => {
+		console.error('[Leaderboard API] Precomputation failed:', err);
+	});
+
+	return json({
+		message: 'Cache cleared and precomputation started',
+		startDate,
+		precomputing: true
+	});
+};

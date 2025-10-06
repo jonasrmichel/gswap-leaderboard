@@ -3,9 +3,10 @@ import { analyzeWallet } from './walletAnalyzer';
 import { defaultWallets } from './defaultWallets';
 
 const DEFAULT_START_DATE = '2025-09-24';
-const CONCURRENCY_LIMIT = 3; // Process up to 3 wallets in parallel (avoid overwhelming APIs)
+const CONCURRENCY_LIMIT = 1; // Process wallets sequentially to ensure API stability
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
+const DELAY_BETWEEN_WALLETS = 1000; // 1 second delay between starting each wallet
 
 let precomputeInProgress = false;
 
@@ -63,6 +64,11 @@ async function processWalletsInParallel(
 		while (queue.length > 0 && inProgress.size < concurrencyLimit) {
 			const walletAddress = queue.shift()!;
 
+			// Add delay before starting each wallet to avoid overwhelming the API
+			if (processedCount > 0) {
+				await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_WALLETS));
+			}
+
 			const task = analyzeWalletWithRetry(walletAddress, startDate).then((result) => {
 				if (result.success) {
 					successCount++;
@@ -107,7 +113,7 @@ export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DA
 	leaderboardStore.setPrecomputing(true);
 
 	console.log(`[Precompute] Starting leaderboard precomputation for ${defaultWallets.length} wallets`);
-	console.log(`[Precompute] Concurrency: ${CONCURRENCY_LIMIT}, Max retries: ${MAX_RETRIES}`);
+	console.log(`[Precompute] Concurrency: ${CONCURRENCY_LIMIT}, Max retries: ${MAX_RETRIES}, Delay between wallets: ${DELAY_BETWEEN_WALLETS}ms`);
 	console.log(`[Precompute] Start date: ${startDate}`);
 
 	const startTime = Date.now();
