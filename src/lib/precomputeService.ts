@@ -1,14 +1,58 @@
 import { leaderboardStore } from './leaderboardStore';
 import { analyzeWallet } from './walletAnalyzer';
 import { defaultWallets } from './defaultWallets';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const DEFAULT_START_DATE = '2025-09-24';
 const CONCURRENCY_LIMIT = 1; // Process wallets sequentially to ensure API stability
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const DELAY_BETWEEN_WALLETS = 1000; // 1 second delay between starting each wallet
+const DELAY_BETWEEN_WALLETS = 3000; // 3 second delay between starting each wallet
 
-let precomputeInProgress = false;
+// Use file-based lock to persist across HMR reloads
+const LOCK_FILE = path.join(process.cwd(), '.precompute.lock');
+
+function isPrecomputeLocked(): boolean {
+	try {
+		if (fs.existsSync(LOCK_FILE)) {
+			const lockData = JSON.parse(fs.readFileSync(LOCK_FILE, 'utf-8'));
+			const lockAge = Date.now() - lockData.timestamp;
+			// Lock expires after 30 minutes (in case of crash)
+			if (lockAge < 30 * 60 * 1000) {
+				return true;
+			}
+			// Lock expired, remove it
+			fs.unlinkSync(LOCK_FILE);
+		}
+	} catch (error) {
+		// If lock file is corrupted, remove it
+		try {
+			fs.unlinkSync(LOCK_FILE);
+		} catch {}
+	}
+	return false;
+}
+
+function acquirePrecomputeLock(): boolean {
+	if (isPrecomputeLocked()) {
+		return false;
+	}
+	try {
+		fs.writeFileSync(LOCK_FILE, JSON.stringify({ timestamp: Date.now() }));
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+function releasePrecomputeLock(): void {
+	try {
+		if (fs.existsSync(LOCK_FILE)) {
+			fs.unlinkSync(LOCK_FILE);
+		}
+	} catch {}
+}
 
 // Retry with exponential backoff
 async function analyzeWalletWithRetry(
@@ -103,13 +147,12 @@ async function processWalletsInParallel(
 }
 
 export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DATE): Promise<void> {
-	// Prevent multiple simultaneous precompute operations
-	if (precomputeInProgress) {
-		console.log('Precompute already in progress, skipping...');
+	// Try to acquire lock (prevents multiple simultaneous precompute operations across HMR reloads)
+	if (!acquirePrecomputeLock()) {
+		console.log('[Precompute] Already in progress (lock file exists), skipping...');
 		return;
 	}
 
-	precomputeInProgress = true;
 	leaderboardStore.setPrecomputing(true);
 
 	console.log(`[Precompute] Starting leaderboard precomputation for ${defaultWallets.length} wallets`);
@@ -135,7 +178,7 @@ export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DA
 	} catch (error) {
 		console.error('[Precompute] Unexpected error:', error);
 	} finally {
-		precomputeInProgress = false;
+		releasePrecomputeLock();
 		leaderboardStore.setPrecomputing(false);
 	}
 }
@@ -153,5 +196,5 @@ if (typeof window === 'undefined') {
 }
 
 export function isPrecomputeInProgress(): boolean {
-	return precomputeInProgress;
+	return isPrecomputeLocked();
 }

@@ -24,7 +24,8 @@
       "Read(//private/tmp/galascan/**)",
       "Read(//tmp/galascan/api/src/api/**)",
       "Read(//tmp/galascan/**)",
-      "Bash(python3:*)"
+      "Bash(python3:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

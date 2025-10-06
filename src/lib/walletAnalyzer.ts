@@ -149,6 +149,8 @@ export class WalletAnalyzer {
 		let retryDelay = 2000; // Start with 2 seconds
 
 		for (const endpoint of endpoints) {
+			let lastError: string | null = null;
+
 			for (let attempt = 0; attempt < maxRetries; attempt++) {
 				try {
 					const response = await fetch(endpoint.url, {
@@ -179,21 +181,44 @@ export class WalletAnalyzer {
 								this.data.balances[symbol] = quantity;
 							}
 							return; // Success, exit retry loop
+						} else {
+							// Empty response - treat as error requiring retry
+							lastError = 'API returned empty token list';
+							console.log(
+								`[WalletAnalyzer] Empty response from ${endpoint.name} for ${this.walletAddress} (attempt ${attempt + 1}/${maxRetries})`
+							);
 						}
+					} else {
+						lastError = `HTTP ${response.status}`;
+						console.log(
+							`[WalletAnalyzer] HTTP ${response.status} from ${endpoint.name} for ${this.walletAddress} (attempt ${attempt + 1}/${maxRetries})`
+						);
 					}
 
-					// If response wasn't ok or no tokens, retry
+					// Retry with exponential backoff
 					if (attempt < maxRetries - 1) {
 						await new Promise((resolve) => setTimeout(resolve, retryDelay));
 						retryDelay *= 2; // Exponential backoff
 					}
 				} catch (error) {
-					console.error(`Failed to fetch from ${endpoint.name} (attempt ${attempt + 1}):`, error);
+					lastError = error instanceof Error ? error.message : String(error);
+					console.error(
+						`[WalletAnalyzer] Failed to fetch from ${endpoint.name} for ${this.walletAddress} (attempt ${attempt + 1}/${maxRetries}):`,
+						error
+					);
 					if (attempt < maxRetries - 1) {
 						await new Promise((resolve) => setTimeout(resolve, retryDelay));
 						retryDelay *= 2; // Exponential backoff
 					}
 				}
+			}
+
+			// If we exhausted all retries without getting data, log warning but don't throw
+			// This allows the wallet to be processed with zero balances
+			if (lastError) {
+				console.warn(
+					`[WalletAnalyzer] Failed to fetch balances for ${this.walletAddress} after ${maxRetries} attempts: ${lastError}`
+				);
 			}
 		}
 	}
