@@ -1,11 +1,14 @@
 import { json } from '@sveltejs/kit';
 import { leaderboardStore } from '$lib/leaderboardStore';
 import { analyzeWallet } from '$lib/walletAnalyzer';
+import { precomputeLeaderboard, isPrecomputeInProgress } from '$lib/precomputeService';
 import type { RequestHandler } from './$types';
+
+const DEFAULT_START_DATE = '2025-09-24';
 
 // GET endpoint to retrieve leaderboard
 export const GET: RequestHandler = async ({ url }) => {
-	const sortBy = (url.searchParams.get('sortBy') || 'volume') as
+	const sortBy = (url.searchParams.get('sortBy') || 'pnl') as
 		| 'volume'
 		| 'pnl'
 		| 'pnlPercent'
@@ -13,12 +16,31 @@ export const GET: RequestHandler = async ({ url }) => {
 		| 'trades'
 		| 'diversification'
 		| 'risk';
+
+	const startDate = url.searchParams.get('startDate') || DEFAULT_START_DATE;
+
+	// Check if cache is valid
+	const cacheValid = leaderboardStore.isCacheValid(startDate);
+	const cacheMetadata = leaderboardStore.getCacheMetadata();
+
+	// If cache is invalid and not currently precomputing, trigger precomputation
+	if (!cacheValid && !isPrecomputeInProgress()) {
+		console.log('[Leaderboard API] Cache invalid, triggering precomputation');
+		// Don't await - let it run in background
+		precomputeLeaderboard(startDate).catch((err) => {
+			console.error('[Leaderboard API] Precomputation failed:', err);
+		});
+	}
+
 	const leaderboard = leaderboardStore.getLeaderboard(sortBy);
 
 	return json({
 		leaderboard,
 		count: leaderboard.length,
-		sortBy
+		sortBy,
+		cached: cacheValid,
+		cacheAge: cacheMetadata.age,
+		precomputing: isPrecomputeInProgress()
 	});
 };
 

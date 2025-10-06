@@ -96,6 +96,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
 				const leaderboard = leaderboardStore.getLeaderboard();
 
+				// Update cache metadata
+				leaderboardStore.setCacheMetadata(startDate.toISOString().split('T')[0]);
+
 				// Send completion message
 				sendEvent({
 					type: 'complete',

@@ -4,6 +4,9 @@ import type { LeaderboardEntry, WalletStatistics } from './walletAnalyzer';
 // In production, this would be replaced with a database
 class LeaderboardStore {
 	private entries: Map<string, LeaderboardEntry> = new Map();
+	private cacheTimestamp: Date | null = null;
+	private cacheStartDate: string | null = null;
+	private isPrecomputing: boolean = false;
 
 	addOrUpdateEntry(walletAddress: string, statistics: WalletStatistics): void {
 		const entry: LeaderboardEntry = {
@@ -82,6 +85,42 @@ class LeaderboardStore {
 
 	size(): number {
 		return this.entries.size;
+	}
+
+	setCacheMetadata(startDate: string): void {
+		this.cacheTimestamp = new Date();
+		this.cacheStartDate = startDate;
+	}
+
+	getCacheMetadata(): { timestamp: Date | null; startDate: string | null; age: number | null } {
+		return {
+			timestamp: this.cacheTimestamp,
+			startDate: this.cacheStartDate,
+			age: this.cacheTimestamp ? Date.now() - this.cacheTimestamp.getTime() : null
+		};
+	}
+
+	isCacheValid(startDate: string, maxAgeMs: number = 3600000): boolean {
+		// Cache is valid if:
+		// 1. Cache exists (has entries)
+		// 2. Start date matches
+		// 3. Cache age is within maxAge (default 1 hour)
+		if (this.entries.size === 0 || !this.cacheTimestamp || !this.cacheStartDate) {
+			return false;
+		}
+		if (this.cacheStartDate !== startDate) {
+			return false;
+		}
+		const age = Date.now() - this.cacheTimestamp.getTime();
+		return age < maxAgeMs;
+	}
+
+	setPrecomputing(value: boolean): void {
+		this.isPrecomputing = value;
+	}
+
+	getPrecomputing(): boolean {
+		return this.isPrecomputing;
 	}
 }
 
