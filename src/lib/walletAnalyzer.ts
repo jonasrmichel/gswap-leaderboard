@@ -109,7 +109,7 @@ export class WalletAnalyzer {
 	async fetchTokenPrices(): Promise<void> {
 		try {
 			const response = await fetch(
-				'https://api.coingecko.com/api/v3/simple/price?ids=gala,ethereum,usd-coin,tether&vs_currencies=usd'
+				'https://api.coingecko.com/api/v3/simple/price?ids=gala,ethereum,bitcoin,usd-coin,tether&vs_currencies=usd'
 			);
 
 			if (response.ok) {
@@ -118,6 +118,8 @@ export class WalletAnalyzer {
 					GALA: prices.gala?.usd || 0.015,
 					GWETH: prices.ethereum?.usd || 4000,
 					ETH: prices.ethereum?.usd || 4000,
+					GWBTC: prices.bitcoin?.usd || 95000,
+					BTC: prices.bitcoin?.usd || 95000,
 					GUSDC: prices['usd-coin']?.usd || 1,
 					USDC: prices['usd-coin']?.usd || 1,
 					GUSDT: prices.tether?.usd || 1,
@@ -129,6 +131,7 @@ export class WalletAnalyzer {
 			this.data.prices = {
 				GALA: 0.015,
 				GWETH: 4000,
+				GWBTC: 95000,
 				GUSDC: 1,
 				GUSDT: 1
 			};
