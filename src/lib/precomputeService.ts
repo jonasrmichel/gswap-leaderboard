@@ -8,7 +8,7 @@ const DEFAULT_START_DATE = '2025-09-24';
 const CONCURRENCY_LIMIT = 1; // Process wallets sequentially to ensure API stability
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const DELAY_BETWEEN_WALLETS = 3000; // 3 second delay between starting each wallet
+const DELAY_BETWEEN_WALLETS = 10000; // 10 second delay between starting each wallet
 
 // Use file-based lock to persist across HMR reloads
 const LOCK_FILE = path.join(process.cwd(), '.precompute.lock');
