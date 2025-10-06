@@ -130,8 +130,8 @@ export class WalletAnalyzer {
 		];
 
 		// Retry logic with exponential backoff
-		const maxRetries = 3;
-		let retryDelay = 1000; // Start with 1 second
+		const maxRetries = 5;
+		let retryDelay = 2000; // Start with 2 seconds
 
 		for (const endpoint of endpoints) {
 			for (let attempt = 0; attempt < maxRetries; attempt++) {

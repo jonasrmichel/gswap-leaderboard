@@ -328,9 +328,9 @@
 									{initProgress.current} / {initProgress.total} wallets processed
 								</p>
 							</div>
-							<p class="subtext">This will take approximately {Math.ceil((initProgress.total - initProgress.current) * 3 / 60)} minutes</p>
+							<p class="subtext">This will take approximately {Math.ceil((initProgress.total - initProgress.current) * 5 / 60)} minutes</p>
 						{:else}
-							<p class="subtext">This may take 2-3 minutes</p>
+							<p class="subtext">This may take 4-5 minutes</p>
 						{/if}
 					{:else}
 						Loading leaderboard...

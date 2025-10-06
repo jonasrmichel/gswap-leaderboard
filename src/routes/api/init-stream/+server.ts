@@ -90,7 +90,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
 					// Delay between each wallet to avoid overwhelming the API
 					if (i < defaultWallets.length - 1) {
-						await new Promise((resolve) => setTimeout(resolve, 3000)); // 3 second delay
+						await new Promise((resolve) => setTimeout(resolve, 5000)); // 5 second delay
 					}
 				}
 
