@@ -12,6 +12,14 @@
 	let sortBy: 'volume' | 'pnl' | 'pnlPercent' | 'value' | 'trades' | 'diversification' | 'risk' =
 		'pnl';
 	let analyzing = false;
+	let hideZeroBalance = false;
+	let hideZeroVolume = false;
+
+	$: filteredLeaderboard = leaderboard.filter(entry => {
+		if (hideZeroBalance && entry.totalValue <= 0) return false;
+		if (hideZeroVolume && entry.totalVolume <= 0) return false;
+		return true;
+	});
 
 	async function fetchLeaderboard() {
 		loading = true;
@@ -297,17 +305,35 @@
 		<div class="leaderboard-section">
 			<div class="section-header">
 				<h2>Leaderboard</h2>
-				<div class="sort-info">
-					<span class="sort-label">Sort by:</span>
-					<select bind:value={sortBy} on:change={() => fetchLeaderboard()} disabled={loading}>
-						<option value="volume">Trading Volume</option>
-						<option value="value">Portfolio Value</option>
-						<option value="pnl">P&L ($)</option>
-						<option value="pnlPercent">P&L %</option>
-						<option value="trades">Trade Count</option>
-						<option value="diversification">Diversification</option>
-						<option value="risk">Risk Level (Low to High)</option>
-					</select>
+				<div class="controls">
+					<div class="filter-option">
+						<input 
+							type="checkbox" 
+							id="hideZero" 
+							bind:checked={hideZeroBalance}
+						/>
+						<label for="hideZero">Hide $0 balance</label>
+					</div>
+					<div class="filter-option">
+						<input 
+							type="checkbox" 
+							id="hideZeroVolume" 
+							bind:checked={hideZeroVolume}
+						/>
+						<label for="hideZeroVolume">Hide $0 volume</label>
+					</div>
+					<div class="sort-info">
+						<span class="sort-label">Sort by:</span>
+						<select bind:value={sortBy} on:change={() => fetchLeaderboard()} disabled={loading}>
+							<option value="volume">Trading Volume</option>
+							<option value="value">Portfolio Value</option>
+							<option value="pnl">P&L ($)</option>
+							<option value="pnlPercent">P&L %</option>
+							<option value="trades">Trade Count</option>
+							<option value="diversification">Diversification</option>
+							<option value="risk">Risk Level (Low to High)</option>
+						</select>
+					</div>
 				</div>
 			</div>
 
@@ -336,10 +362,15 @@
 						Loading leaderboard...
 					{/if}
 				</div>
-			{:else if leaderboard.length === 0}
+			{:else if filteredLeaderboard.length === 0}
 				<div class="empty">
-					<p>No wallets in the leaderboard yet.</p>
-					<p>Add a wallet address above to get started!</p>
+					{#if leaderboard.length > 0}
+						<p>No wallets match the current filter.</p>
+						<p>Try adjusting your filter settings.</p>
+					{:else}
+						<p>No wallets in the leaderboard yet.</p>
+						<p>Add a wallet address above to get started!</p>
+					{/if}
 				</div>
 			{:else}
 				<div class="table-container">
@@ -403,7 +434,7 @@
 							</tr>
 						</thead>
 						<tbody>
-							{#each leaderboard as entry}
+							{#each filteredLeaderboard as entry, i}
 								<tr>
 									<td class="rank">
 										{#if entry.rank === 1}
@@ -560,6 +591,7 @@
 		color: #e2e8f0;
 		transition: all 0.3s ease;
 		min-width: 160px;
+		color-scheme: dark;
 	}
 
 	.date-selector input[type='date']:focus {
@@ -685,6 +717,38 @@
 		margin-bottom: 2rem;
 		flex-wrap: wrap;
 		gap: 1.5rem;
+	}
+
+	.controls {
+		display: flex;
+		align-items: center;
+		gap: 2rem;
+		flex-wrap: wrap;
+	}
+
+	.filter-option {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.filter-option input[type='checkbox'] {
+		width: 20px;
+		height: 20px;
+		accent-color: #8b5cf6;
+		cursor: pointer;
+	}
+
+	.filter-option label {
+		font-size: 0.95rem;
+		color: #cbd5e1;
+		cursor: pointer;
+		user-select: none;
+		transition: color 0.2s;
+	}
+
+	.filter-option label:hover {
+		color: #e0e7ff;
 	}
 
 	.sort-info {
@@ -976,6 +1040,17 @@
 			flex-direction: column;
 			align-items: flex-start;
 			gap: 1rem;
+		}
+
+		.controls {
+			width: 100%;
+			flex-direction: column;
+			align-items: stretch;
+			gap: 1rem;
+		}
+
+		.filter-option {
+			width: 100%;
 		}
 
 		.sort-info {

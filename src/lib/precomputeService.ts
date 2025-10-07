@@ -5,10 +5,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 const DEFAULT_START_DATE = '2025-09-24';
-const CONCURRENCY_LIMIT = 1; // Process wallets sequentially to ensure API stability
+const CONCURRENCY_LIMIT = 5; // Process 5 wallets concurrently
 const MAX_RETRIES = 5;
 const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const DELAY_BETWEEN_WALLETS = 10000; // 10 second delay between starting each wallet
+const DELAY_BETWEEN_WALLETS = 0; // No delay needed with ClickHouse
 
 // Use file-based lock to persist across HMR reloads
 const LOCK_FILE = path.join(process.cwd(), '.precompute.lock');
@@ -108,8 +108,8 @@ async function processWalletsInParallel(
 		while (queue.length > 0 && inProgress.size < concurrencyLimit) {
 			const walletAddress = queue.shift()!;
 
-			// Add delay before starting each wallet to avoid overwhelming the API
-			if (processedCount > 0) {
+			// Add delay only if configured (not needed with ClickHouse)
+			if (DELAY_BETWEEN_WALLETS > 0 && processedCount > 0) {
 				await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_WALLETS));
 			}
 
