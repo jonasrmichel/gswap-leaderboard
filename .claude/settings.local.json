@@ -26,7 +26,9 @@
       "Read(//tmp/galascan/**)",
       "Bash(python3:*)",
       "Bash(cat:*)",
-      "WebFetch(domain:galascan.gala.com)"
+      "WebFetch(domain:galascan.gala.com)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "ask": []

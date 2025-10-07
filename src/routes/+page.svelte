@@ -575,6 +575,11 @@
 		opacity: 0.5;
 	}
 
+	.date-selector input[type='date']::-webkit-calendar-picker-indicator {
+		filter: invert(1);
+		cursor: pointer;
+	}
+
 	.reanalyze-btn {
 		padding: 0.75rem 1.5rem;
 		font-size: 0.95rem;
