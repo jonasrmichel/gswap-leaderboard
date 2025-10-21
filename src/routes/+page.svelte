@@ -1,19 +1,23 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
 	import type { LeaderboardEntry } from '$lib/walletAnalyzer';
+	import type { PageData } from './$types';
 
-	let leaderboard: LeaderboardEntry[] = [];
+	export let data: PageData;
+
+	let leaderboard: LeaderboardEntry[] = data.leaderboard || [];
 	let loading = false;
 	let initializing = false;
 	let initProgress = { current: 0, total: 0 };
 	let error = '';
 	let walletAddress = '';
 	let startDate = '2025-09-24';
+	let endDate = '2025-10-08';
 	let sortBy: 'volume' | 'pnl' | 'pnlPercent' | 'value' | 'trades' | 'diversification' | 'risk' =
 		'pnl';
 	let analyzing = false;
 	let hideZeroBalance = false;
-	let hideZeroVolume = false;
+	let hideZeroVolume = true;
 
 	$: filteredLeaderboard = leaderboard.filter(entry => {
 		if (hideZeroBalance && entry.totalValue <= 0) return false;
@@ -28,8 +32,11 @@
 			const response = await fetch(`/api/leaderboard?sortBy=${sortBy}`);
 			if (!response.ok) throw new Error('Failed to fetch leaderboard');
 			const data = await response.json();
+			console.log('[Frontend] Fetched leaderboard data:', data);
 			leaderboard = data.leaderboard;
+			console.log('[Frontend] Leaderboard set to:', leaderboard);
 		} catch (e) {
+			console.error('[Frontend] Error fetching leaderboard:', e);
 			error = e instanceof Error ? e.message : 'Failed to load leaderboard';
 		} finally {
 			loading = false;
@@ -48,7 +55,7 @@
 			const response = await fetch('/api/leaderboard', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ walletAddress: walletAddress.trim(), startDate })
+				body: JSON.stringify({ walletAddress: walletAddress.trim(), startDate, endDate })
 			});
 
 			if (!response.ok) {
@@ -77,7 +84,7 @@
 			const response = await fetch('/api/init-stream', {
 				method: 'POST',
 				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ startDate, force: true })
+				body: JSON.stringify({ startDate, endDate, force: true })
 			});
 
 			if (!response.ok) {
@@ -130,18 +137,28 @@
 	}
 
 	async function initializeDefaults() {
+		console.log('[Frontend] Starting initializeDefaults');
+		
+		// If we already have data from SSR, don't fetch again immediately
+		if (leaderboard.length > 0) {
+			console.log('[Frontend] Leaderboard already has data from SSR, skipping initial fetch');
+			return;
+		}
+		
 		// First, try to fetch existing leaderboard
 		await fetchLeaderboard();
 
+		console.log('[Frontend] After fetch, leaderboard length:', leaderboard.length);
 		// If leaderboard is empty, initialize with defaults
 		if (leaderboard.length === 0) {
+			console.log('[Frontend] Leaderboard is empty, initializing with defaults');
 			initializing = true;
 			initProgress = { current: 0, total: 54 };
 			try {
 				const response = await fetch('/api/init-stream', {
 					method: 'POST',
 					headers: { 'Content-Type': 'application/json' },
-					body: JSON.stringify({ startDate })
+					body: JSON.stringify({ startDate, endDate })
 				});
 
 				if (!response.ok) {
@@ -246,6 +263,66 @@
 		return labels[sort];
 	}
 
+	function generateCSV(): string {
+		const headers = [
+			'Rank',
+			'Wallet Address',
+			'Portfolio Value ($)',
+			'Trading Volume ($)',
+			'P&L ($)',
+			'P&L (%)',
+			'Trade Count',
+			'Risk Level',
+			'Diversification Score',
+			'Last Updated'
+		];
+
+		const rows = filteredLeaderboard.map(entry => [
+			entry.rank,
+			entry.walletAddress,
+			entry.totalValue.toFixed(2),
+			entry.totalVolume.toFixed(2),
+			entry.pnl.toFixed(2),
+			entry.pnlPercent.toFixed(2),
+			entry.estimatedTrades,
+			entry.riskLevel,
+			entry.diversificationScore.toFixed(1),
+			new Date(entry.lastUpdated).toISOString()
+		]);
+
+		const csvContent = [
+			headers.join(','),
+			...rows.map(row => 
+				row.map(cell => 
+					typeof cell === 'string' && cell.includes(',') 
+						? `"${cell}"` 
+						: cell
+				).join(',')
+			)
+		].join('\n');
+
+		return csvContent;
+	}
+
+	function downloadCSV() {
+		const csv = generateCSV();
+		const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+		const link = document.createElement('a');
+		const url = URL.createObjectURL(blob);
+		
+		const timestamp = new Date().toISOString().split('T')[0];
+		link.setAttribute('href', url);
+		link.setAttribute('download', `gswap-leaderboard-${timestamp}.csv`);
+		link.style.display = 'none';
+		
+		document.body.appendChild(link);
+		link.click();
+		document.body.removeChild(link);
+		
+		// Clean up the URL
+		URL.revokeObjectURL(url);
+	}
+
 	onMount(() => {
 		initializeDefaults();
 	});
@@ -266,12 +343,21 @@
 			<div class="section-top">
 				<h2>Add Wallet to Leaderboard</h2>
 				<div class="date-selector">
-					<label for="startDate">Analysis Start Date:</label>
+					<label for="startDate">Start Date:</label>
 					<input
 						type="date"
 						id="startDate"
 						bind:value={startDate}
 						disabled={initializing}
+						max={endDate}
+					/>
+					<label for="endDate">End Date:</label>
+					<input
+						type="date"
+						id="endDate"
+						bind:value={endDate}
+						disabled={initializing}
+						min={startDate}
 						max={new Date().toISOString().split('T')[0]}
 					/>
 					<button
@@ -334,6 +420,14 @@
 							<option value="risk">Risk Level (Low to High)</option>
 						</select>
 					</div>
+					<button 
+						class="export-btn" 
+						on:click={downloadCSV}
+						disabled={filteredLeaderboard.length === 0}
+						title="Export leaderboard to CSV"
+					>
+						📥 Export CSV
+					</button>
 				</div>
 			</div>
 
@@ -798,6 +892,34 @@
 	select option {
 		background: #1a1a2e;
 		color: #e2e8f0;
+	}
+
+	.export-btn {
+		padding: 0.75rem 1.5rem;
+		background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+		color: white;
+		border: none;
+		border-radius: 12px;
+		font-size: 0.95rem;
+		font-weight: 600;
+		cursor: pointer;
+		transition: all 0.3s ease;
+		white-space: nowrap;
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+	}
+
+	.export-btn:hover:not(:disabled) {
+		background: linear-gradient(135deg, #059669 0%, #047857 100%);
+		transform: translateY(-2px);
+		box-shadow: 0 8px 16px rgba(16, 185, 129, 0.3);
+	}
+
+	.export-btn:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+		transform: none;
 	}
 
 	.loading,

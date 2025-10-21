@@ -3,12 +3,13 @@ import { analyzeWallet } from './walletAnalyzer';
 import { defaultWallets } from './defaultWallets';
 import * as fs from 'fs';
 import * as path from 'path';
+import fetch from 'node-fetch';
 
 const DEFAULT_START_DATE = '2025-09-24';
-const CONCURRENCY_LIMIT = 5; // Process 5 wallets concurrently
-const MAX_RETRIES = 5;
-const INITIAL_RETRY_DELAY = 2000; // 2 seconds
-const DELAY_BETWEEN_WALLETS = 0; // No delay needed with ClickHouse
+const CONCURRENCY_LIMIT = 3; // Reduce concurrency to avoid overwhelming the balance API
+const MAX_RETRIES = 3; // Reduced retries
+const INITIAL_RETRY_DELAY = 500; // 500ms instead of 200ms
+const DELAY_BETWEEN_WALLETS = 100; // Small delay between starting new wallets
 
 // Use file-based lock to persist across HMR reloads
 const LOCK_FILE = path.join(process.cwd(), '.precompute.lock');
@@ -58,13 +59,14 @@ function releasePrecomputeLock(): void {
 async function analyzeWalletWithRetry(
 	walletAddress: string,
 	startDate: Date,
+	tokenPrices: { [key: string]: number },
 	maxRetries: number = MAX_RETRIES
 ): Promise<{ success: boolean; error?: string }> {
 	let lastError: Error | null = null;
 
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		try {
-			const statistics = await analyzeWallet(walletAddress, startDate);
+			const statistics = await analyzeWallet(walletAddress, startDate, tokenPrices);
 			leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
 			return { success: true };
 		} catch (error) {
@@ -75,8 +77,8 @@ async function analyzeWalletWithRetry(
 				return { success: false, error: lastError.message };
 			}
 
-			// Exponential backoff: 1s, 2s, 4s, 8s, 16s
-			const delay = INITIAL_RETRY_DELAY * Math.pow(2, attempt);
+			// Gentler backoff: 200ms, 300ms, 450ms
+			const delay = INITIAL_RETRY_DELAY * Math.pow(1.5, attempt);
 
 			if (attempt < maxRetries - 1) {
 				console.log(
@@ -90,11 +92,55 @@ async function analyzeWalletWithRetry(
 	return { success: false, error: lastError?.message || 'Unknown error' };
 }
 
+// Fetch token prices once for all wallets
+async function fetchGlobalTokenPrices(): Promise<{ [key: string]: number }> {
+	try {
+		const response = await fetch(
+			'https://api.coingecko.com/api/v3/simple/price?ids=gala,ethereum,bitcoin,usd-coin,tether&vs_currencies=usd'
+		);
+		
+		if (response.ok) {
+			const prices = await response.json() as any;
+			const tokenPrices = {
+				GALA: prices.gala?.usd || 0.015,
+				GWETH: prices.ethereum?.usd || 4000,
+				ETH: prices.ethereum?.usd || 4000,
+				GWBTC: prices.bitcoin?.usd || 95000,
+				BTC: prices.bitcoin?.usd || 95000,
+				GUSDC: prices['usd-coin']?.usd || 1,
+				USDC: prices['usd-coin']?.usd || 1,
+				GUSDT: prices.tether?.usd || 1,
+				USDT: prices.tether?.usd || 1
+			};
+			console.log('[Precompute] Global token prices fetched:', tokenPrices);
+			return tokenPrices;
+		}
+	} catch (error) {
+		console.error('[Precompute] Failed to fetch global token prices:', error);
+	}
+	
+	// Use default prices
+	const defaultPrices = {
+		GALA: 0.015,
+		GWETH: 4000,
+		ETH: 4000,
+		GWBTC: 95000,
+		BTC: 95000,
+		GUSDC: 1,
+		USDC: 1,
+		GUSDT: 1,
+		USDT: 1
+	};
+	console.log('[Precompute] Using default token prices');
+	return defaultPrices;
+}
+
 // Process wallets in parallel with concurrency limit
 async function processWalletsInParallel(
 	wallets: string[],
 	startDate: Date,
-	concurrencyLimit: number
+	concurrencyLimit: number,
+	tokenPrices: { [key: string]: number }
 ): Promise<{ successCount: number; failureCount: number }> {
 	let successCount = 0;
 	let failureCount = 0;
@@ -113,7 +159,7 @@ async function processWalletsInParallel(
 				await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_WALLETS));
 			}
 
-			const task = analyzeWalletWithRetry(walletAddress, startDate).then((result) => {
+			const task = analyzeWalletWithRetry(walletAddress, startDate, tokenPrices).then((result) => {
 				if (result.success) {
 					successCount++;
 				} else {
@@ -162,10 +208,14 @@ export async function precomputeLeaderboard(startDate: string = DEFAULT_START_DA
 	const startTime = Date.now();
 
 	try {
+		// Fetch token prices once for all wallets
+		const tokenPrices = await fetchGlobalTokenPrices();
+		
 		const { successCount, failureCount } = await processWalletsInParallel(
 			defaultWallets,
 			new Date(startDate),
-			CONCURRENCY_LIMIT
+			CONCURRENCY_LIMIT,
+			tokenPrices
 		);
 
 		// Mark cache as valid

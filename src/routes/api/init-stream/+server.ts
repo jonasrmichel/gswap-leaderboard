@@ -10,13 +10,14 @@ const INITIAL_RETRY_DELAY = 2000; // 2 seconds
 async function analyzeWalletWithRetry(
 	walletAddress: string,
 	startDate: Date,
+	endDate: Date | undefined,
 	maxRetries: number = MAX_RETRIES
 ): Promise<{ success: boolean; error?: string }> {
 	let lastError: Error | null = null;
 
 	for (let attempt = 0; attempt < maxRetries; attempt++) {
 		try {
-			const statistics = await analyzeWallet(walletAddress, startDate);
+			const statistics = await analyzeWallet(walletAddress, startDate, endDate);
 			leaderboardStore.addOrUpdateEntry(walletAddress, statistics);
 			return { success: true };
 		} catch (error) {
@@ -43,6 +44,7 @@ async function analyzeWalletWithRetry(
 export const POST: RequestHandler = async ({ request }) => {
 	const body = await request.json().catch(() => ({}));
 	const startDate = body.startDate ? new Date(body.startDate) : new Date('2025-09-24');
+	const endDate = body.endDate ? new Date(body.endDate) : undefined;
 	const force = body.force === true;
 
 	// Create a readable stream for SSE
@@ -93,7 +95,7 @@ export const POST: RequestHandler = async ({ request }) => {
 				for (let i = 0; i < defaultWallets.length; i++) {
 					const walletAddress = defaultWallets[i];
 
-					const result = await analyzeWalletWithRetry(walletAddress, startDate);
+					const result = await analyzeWalletWithRetry(walletAddress, startDate, endDate);
 
 					if (result.success) {
 						results.successful++;

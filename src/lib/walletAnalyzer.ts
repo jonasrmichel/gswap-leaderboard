@@ -89,6 +89,8 @@ export interface LeaderboardEntry {
 export class WalletAnalyzer {
 	walletAddress: string;
 	startDate: Date;
+	endDate: Date;
+	providedTokenPrices?: { [key: string]: number };
 	data: {
 		balances: WalletBalance;
 		prices: TokenPrice;
@@ -96,9 +98,11 @@ export class WalletAnalyzer {
 		statistics: Partial<WalletStatistics>;
 	};
 
-	constructor(walletAddress: string, startDate: Date) {
+	constructor(walletAddress: string, startDate: Date, endDate?: Date, tokenPrices?: { [key: string]: number }) {
 		this.walletAddress = walletAddress;
 		this.startDate = startDate;
+		this.endDate = endDate || new Date();
+		this.providedTokenPrices = tokenPrices;
 		this.data = {
 			balances: {},
 			prices: {},
@@ -108,6 +112,13 @@ export class WalletAnalyzer {
 	}
 
 	async fetchTokenPrices(): Promise<void> {
+		// If prices were provided, use them directly
+		if (this.providedTokenPrices) {
+			this.data.prices = this.providedTokenPrices;
+			return;
+		}
+		
+		// Otherwise fetch from CoinGecko
 		try {
 			const response = await fetch(
 				'https://api.coingecko.com/api/v3/simple/price?ids=gala,ethereum,bitcoin,usd-coin,tether&vs_currencies=usd'
@@ -126,6 +137,7 @@ export class WalletAnalyzer {
 					GUSDT: prices.tether?.usd || 1,
 					USDT: prices.tether?.usd || 1
 				};
+				console.log(`[WalletAnalyzer] Token prices fetched:`, this.data.prices);
 			}
 		} catch (error) {
 			// Use default prices
@@ -136,6 +148,7 @@ export class WalletAnalyzer {
 				GUSDC: 1,
 				GUSDT: 1
 			};
+			console.log(`[WalletAnalyzer] Using default token prices due to error:`, error);
 		}
 	}
 
@@ -148,9 +161,9 @@ export class WalletAnalyzer {
 			}
 		];
 
-		// Retry logic with exponential backoff
-		const maxRetries = 5;
-		let retryDelay = 2000; // Start with 2 seconds
+		// Retry logic with minimal delay
+		const maxRetries = 3; // Reduce retries since we're using ClickHouse
+		let retryDelay = 100; // Start with 100ms instead of 2 seconds
 
 		for (const endpoint of endpoints) {
 			let lastError: string | null = null;
@@ -184,6 +197,7 @@ export class WalletAnalyzer {
 								const quantity = parseFloat(token.quantity || token.balance || '0');
 								this.data.balances[symbol] = quantity;
 							}
+							console.log(`[WalletAnalyzer] Fetched ${tokens.length} token balances for ${this.walletAddress}`);
 							return; // Success, exit retry loop
 						} else {
 							// Empty response - treat as error requiring retry
@@ -199,10 +213,10 @@ export class WalletAnalyzer {
 						);
 					}
 
-					// Retry with exponential backoff
+					// Retry with minimal delay
 					if (attempt < maxRetries - 1) {
 						await new Promise((resolve) => setTimeout(resolve, retryDelay));
-						retryDelay *= 2; // Exponential backoff
+						retryDelay = Math.min(retryDelay * 1.5, 500); // Gentler backoff, max 500ms
 					}
 				} catch (error) {
 					lastError = error instanceof Error ? error.message : String(error);
@@ -212,7 +226,7 @@ export class WalletAnalyzer {
 					);
 					if (attempt < maxRetries - 1) {
 						await new Promise((resolve) => setTimeout(resolve, retryDelay));
-						retryDelay *= 2; // Exponential backoff
+						retryDelay = Math.min(retryDelay * 1.5, 500); // Gentler backoff, max 500ms
 					}
 				}
 			}
@@ -235,7 +249,8 @@ export class WalletAnalyzer {
 					console.log(`[WalletAnalyzer] Fetching transactions from ClickHouse for ${this.walletAddress}`);
 					const transactions = await clickhouseService.fetchTransactions(
 						this.walletAddress,
-						this.startDate
+						this.startDate,
+						this.endDate
 					);
 
 					// Convert ClickHouse transactions to our TransactionData format
@@ -243,23 +258,29 @@ export class WalletAnalyzer {
 					this.data.transactions = transactions
 						.filter(tx => {
 							// Check if this is a swap transaction
-							return tx.Method === 'DexV3Contract:BatchSubmit:Swap' && tx.is_nft === 0;
+							// ClickHouse uses different field names
+							return tx.action_args_method_name === 'DexV3Contract:BatchSubmit:Swap';
 						})
 						.map(tx => {
-							// Parse the Amount field which is in format "quantity:token"
-							const [amount, token] = tx.Amount ? tx.Amount.split(':') : ['0', ''];
+							// Extract token from collection or token_id
+							// token_id format is like "GALA|Unit|none|none"
+							const token = tx.collection || tx.token_id?.split('|')[0] || '';
+							
+							// Calculate age from created_at
+							const createdDate = new Date(tx.created_at);
+							const ageInDays = Math.floor((Date.now() - createdDate.getTime()) / 86400000);
 							
 							return {
-								hash: tx.TransactionHash,
-								method: tx.Method,
-								from: tx.FromWallet,
-								to: tx.ToWallet,
-								age: `${Math.floor(tx.SecondsAgo / 86400)} days`,
-								token: token || '',
-								amount: amount || '0',
-								fee: tx.Fee || '0',
+								hash: tx.transaction_id,
+								method: tx.action_args_method_name,
+								from: tx.from_wallet,
+								to: tx.to_wallet,
+								age: `${ageInDays} days`,
+								token: token,
+								amount: tx.quantity?.toString() || '0',
+								fee: tx.fee || '0',
 								type: 'swap',
-								timestamp: tx.CreatedAt
+								timestamp: tx.created_at
 							};
 						});
 
@@ -284,11 +305,12 @@ export class WalletAnalyzer {
 			if (response.ok) {
 				const transactions = (await response.json()) as GalaScanTransaction[];
 
-				// Filter transactions by start date and only include swaps
+				// Filter transactions by date range and only include swaps
 				const filteredTransactions = transactions.filter((tx) => {
 					const txDate = new Date(tx.CreatedAt);
 					return (
 						txDate >= this.startDate &&
+						txDate <= this.endDate &&
 						tx.Method === 'DexV3Contract:BatchSubmit:Swap' &&
 						tx.is_nft === 0
 					);
@@ -336,6 +358,10 @@ export class WalletAnalyzer {
 			const price = this.data.prices[token] || 0;
 			const value = quantity * price;
 			totalValue += value;
+
+			if (value > 0) {
+				console.log(`[WalletAnalyzer] ${this.walletAddress} - ${token}: ${quantity} @ $${price} = $${value}`);
+			}
 
 			holdings.push({
 				token,
@@ -494,8 +520,10 @@ export class WalletAnalyzer {
 		await this.fetchWalletBalances();
 		await this.fetchTransactions();
 
+		// Don't throw error for empty balances, just log and continue with 0 values
 		if (Object.keys(this.data.balances).length === 0) {
-			throw new Error('No balances found for wallet');
+			console.log(`[WalletAnalyzer] No balances found for ${this.walletAddress}, continuing with empty portfolio`);
+			// Don't throw - let it calculate statistics with empty balances
 		}
 
 		return this.calculateStatistics();
@@ -504,8 +532,10 @@ export class WalletAnalyzer {
 
 export async function analyzeWallet(
 	walletAddress: string,
-	startDate: Date
+	startDate: Date,
+	endDate?: Date,
+	tokenPrices?: { [key: string]: number }
 ): Promise<WalletStatistics> {
-	const analyzer = new WalletAnalyzer(walletAddress, startDate);
+	const analyzer = new WalletAnalyzer(walletAddress, startDate, endDate, tokenPrices);
 	return await analyzer.analyze();
 }

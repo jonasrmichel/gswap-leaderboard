@@ -47,14 +47,15 @@ export const GET: RequestHandler = async ({ url }) => {
 // POST endpoint to add a wallet to the leaderboard
 export const POST: RequestHandler = async ({ request }) => {
 	try {
-		const { walletAddress, startDate } = await request.json();
+		const { walletAddress, startDate, endDate } = await request.json();
 
 		if (!walletAddress) {
 			return json({ error: 'Wallet address is required' }, { status: 400 });
 		}
 
 		const start = startDate ? new Date(startDate) : new Date('2025-09-22');
-		const statistics = await analyzeWallet(walletAddress, start);
+		const end = endDate ? new Date(endDate) : undefined;
+		const statistics = await analyzeWallet(walletAddress, start, end);
 
 		// Add to leaderboard
 		leaderboardStore.addOrUpdateEntry(walletAddress, statistics);

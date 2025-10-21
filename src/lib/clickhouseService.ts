@@ -1,18 +1,19 @@
 import fetch from 'node-fetch';
 
 export interface ClickHouseTransaction {
-	TransactionHash: string;
-	Method: string;
-	Channel: string;
-	Block: string;
-	SecondsAgo: number;
-	CreatedAt: string;
-	FromWallet: string;
-	ToWallet: string;
-	Amount: string;
-	token_path: string;
-	Fee: string;
-	is_nft: number;
+	transaction_id: string;
+	action_args_method_name: string;
+	channel_name: string;
+	block_number: string;
+	created_at: string;
+	from_wallet: string;
+	to_wallet: string;
+	quantity: number;
+	collection: string;
+	token_id: string;
+	fee_wallet: string;
+	fee: string;
+	mv_name: string;
 }
 
 export class ClickHouseService {

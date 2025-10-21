@@ -22,6 +22,7 @@ class LeaderboardStore {
 			lastUpdated: new Date().toISOString()
 		};
 
+		console.log(`[LeaderboardStore] Adding entry for ${walletAddress}: value=$${statistics.totalValue.toFixed(2)}, volume=$${statistics.totalVolumeMoved.toFixed(2)}`);
 		this.entries.set(walletAddress, entry);
 	}
 
